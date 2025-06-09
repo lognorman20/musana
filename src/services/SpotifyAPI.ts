@@ -191,8 +191,57 @@ export class SpotifyAPI {
    * Get the user's playlists
    */
   async getUserPlaylists(): Promise<Playlist[]> {
-    // TODO: Implement API call
-    return [];
+    if (!this.accessToken) {
+      throw new Error('Not authenticated');
+    }
+
+    try {
+      let playlists: Playlist[] = [];
+      let url = 'https://api.spotify.com/v1/me/playlists?limit=50';
+
+      while (url) {
+        const res = await fetch(url, {
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`,
+          },
+        });
+
+        if (res.status === 401) {
+          // Token expired, try to refresh
+          await this.refreshAccessToken();
+          return this.getUserPlaylists(); // Retry once
+        }
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error?.message || 'Failed to fetch playlists');
+        }
+
+        const data = await res.json();
+        const items = data.items.map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          description: item.description,
+          images: item.images,
+          tracks: {
+            total: item.tracks.total,
+            href: item.tracks.href,
+          },
+          owner: {
+            id: item.owner.id,
+            display_name: item.owner.display_name,
+          },
+        }));
+
+        playlists = [...playlists, ...items];
+        url = data.next; // Get the next page URL if it exists
+      }
+
+      return playlists;
+    } catch (error: any) {
+      console.error('[SpotifyAPI] getUserPlaylists failed:', error);
+      throw error;
+    }
   }
 
   /**

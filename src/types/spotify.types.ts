@@ -31,8 +31,16 @@ export interface Track {
 export interface Playlist {
   id: string;
   name: string;
+  description?: string;
   images: Image[];
-  tracks: { total: number };
+  tracks: {
+    total: number;
+    href: string;
+  };
+  owner: {
+    id: string;
+    display_name: string;
+  };
 }
 
 // Represents a Spotify user profile

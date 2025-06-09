@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button, View, ActivityIndicator, StyleSheet, StatusBar, Text, Image, Alert } from 'react-native';
 import * as Linking from 'expo-linking';
 import { SpotifyAPI } from './src/services/SpotifyAPI';
-import { SpotifyUser, Track } from './src/types/spotify.types';
+import { SpotifyUser, Track, Playlist } from './src/types/spotify.types';
+import { PlaylistList } from './src/components/PlaylistList';
 
 // Main App Entry
 export default function App() {
@@ -11,6 +12,9 @@ export default function App() {
   const [track, setTrack] = useState<Track | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tokensLoaded, setTokensLoaded] = useState(false);
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [playlistsError, setPlaylistsError] = useState<string | null>(null);
+  const [loadingPlaylists, setLoadingPlaylists] = useState(false);
   const spotifyApiRef = useRef<SpotifyAPI | null>(null);
 
   // Load tokens on mount
@@ -100,6 +104,28 @@ export default function App() {
     }
   }, [user]);
 
+  const handleLoadPlaylists = useCallback(async () => {
+    setLoadingPlaylists(true);
+    setPlaylistsError(null);
+    try {
+      // Authenticate if not already
+      if (!user) {
+        const url = await spotifyApiRef.current?.authenticate();
+        if (url) Linking.openURL(url);
+        setLoadingPlaylists(false);
+        return;
+      }
+      const userPlaylists = await spotifyApiRef.current?.getUserPlaylists();
+      if (userPlaylists) {
+        setPlaylists(userPlaylists);
+      }
+    } catch (e: any) {
+      setPlaylistsError(e?.message || 'Failed to fetch playlists');
+    } finally {
+      setLoadingPlaylists(false);
+    }
+  }, [user]);
+
   if (loading || !tokensLoaded) {
     return (
       <View style={styles.container}>
@@ -112,26 +138,35 @@ export default function App() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
-      <Button title="Show Currently Playing" onPress={handleShowCurrentlyPlaying} color="#1DB954" />
-      {error && <Text style={styles.error}>{error}</Text>}
-      {track && (
-        <View style={styles.trackContainer}>
-          {track.album.images && track.album.images[0] && (
-            <Image source={{ uri: track.album.images[0].url }} style={styles.albumArt} />
+      {!user ? (
+        <Button title="Login with Spotify" onPress={handleSpotifyAuth} color="#1DB954" />
+      ) : (
+        <>
+          <View style={styles.header}>
+            <Text style={styles.welcomeText}>Welcome, {user.display_name}</Text>
+            <Button title="Logout" onPress={handleLogout} color="#ff0033" />
+          </View>
+          <Button title="Show Currently Playing" onPress={handleShowCurrentlyPlaying} color="#1DB954" />
+          {error && <Text style={styles.error}>{error}</Text>}
+          {track && (
+            <View style={styles.trackContainer}>
+              <Image
+                source={{ uri: track.album.images[0]?.url }}
+                style={styles.albumArt}
+              />
+              <Text style={styles.trackName}>{track.name}</Text>
+              <Text style={styles.artistName}>
+                {track.artists.map(a => a.name).join(', ')}
+              </Text>
+            </View>
           )}
-          <Text style={styles.trackTitle}>{track.name}</Text>
-          <Text style={styles.trackArtist}>{track.artists.map(a => a.name).join(', ')}</Text>
-        </View>
-      )}
-      {user && (
-        <View style={styles.userContainer}>
-          {user.images && user.images[0] && (
-            <Image source={{ uri: user.images[0].url }} style={styles.avatar} />
-          )}
-          <Text style={styles.userName}>{user.display_name}</Text>
-          <Text style={styles.userEmail}>{user.email}</Text>
-          <Button title="Logout" onPress={handleLogout} color="#d32f2f" />
-        </View>
+          <PlaylistList
+            onLoadPlaylists={handleLoadPlaylists}
+            playlists={playlists}
+            loading={loadingPlaylists}
+            error={playlistsError}
+          />
+        </>
       )}
     </View>
   );
@@ -140,59 +175,45 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     backgroundColor: '#000',
-  },
-  userContainer: {
     alignItems: 'center',
-    gap: 12,
-    marginTop: 32,
+    justifyContent: 'flex-start',
+    paddingTop: 50,
+    paddingHorizontal: 20,
   },
-  avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    marginBottom: 16,
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 20,
   },
-  userName: {
-    color: '#fff',
+  welcomeText: {
+    color: 'white',
     fontSize: 18,
-    marginBottom: 4,
+    fontWeight: '600',
   },
-  userEmail: {
-    color: '#aaa',
-    fontSize: 14,
-    marginBottom: 16,
+  error: {
+    color: '#ff0033',
+    marginVertical: 20,
   },
   trackContainer: {
     alignItems: 'center',
-    marginTop: 32,
-    marginBottom: 16,
+    marginVertical: 20,
   },
   albumArt: {
-    width: 180,
-    height: 180,
-    borderRadius: 8,
-    marginBottom: 16,
+    width: 200,
+    height: 200,
+    marginBottom: 10,
   },
-  trackTitle: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    textAlign: 'center',
+  trackName: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 5,
   },
-  trackArtist: {
-    color: '#aaa',
+  artistName: {
+    color: '#999',
     fontSize: 16,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  error: {
-    color: '#d32f2f',
-    marginTop: 16,
-    fontSize: 16,
-    textAlign: 'center',
   },
 });
