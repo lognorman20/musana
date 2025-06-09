@@ -2,19 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Button, View, ActivityIndicator, StyleSheet, StatusBar, Text, Image, Alert } from 'react-native';
 import * as Linking from 'expo-linking';
 import { SpotifyAPI } from './src/services/SpotifyAPI';
+import { SpotifyUser } from './src/types/spotify.types';
 
-interface SpotifyUser {
-  id: string;
-  display_name: string;
-  email: string;
-  images: { url: string }[];
-}
-
-const spotifyApi = new SpotifyAPI();
-
+// Main App Entry
 export default function App() {
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<SpotifyUser | null>(null);
+  const spotifyApi = new SpotifyAPI();
 
   // Listen for OAuth redirect
   useEffect(() => {
@@ -52,12 +46,12 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [spotifyApi]);
 
   const handleLogout = useCallback(() => {
     spotifyApi.logout();
     setUser(null);
-  }, []);
+  }, [spotifyApi]);
 
   return (
     <View style={styles.container}>
