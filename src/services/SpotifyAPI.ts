@@ -11,6 +11,22 @@ export class SpotifyAPI {
   private refreshToken: string | null = null;
   private user: SpotifyUser | null = null;
 
+  constructor() {
+    // Load tokens from SecureStore if available
+    this.loadTokens();
+  }
+
+  private async loadTokens() {
+    try {
+      const accessToken = await SecureStore.getItemAsync('spotify_access_token');
+      const refreshToken = await SecureStore.getItemAsync('spotify_refresh_token');
+      this.accessToken = accessToken || null;
+      this.refreshToken = refreshToken || null;
+    } catch (e) {
+      console.error('[SpotifyAPI] Failed to load tokens from SecureStore', e);
+    }
+  }
+
   /**
    * Authenticate with Spotify (OAuth flow)
    * Returns the authorization URL to open in a browser or WebView
@@ -125,8 +141,50 @@ export class SpotifyAPI {
    * Get the currently playing track
    */
   async getCurrentlyPlaying(): Promise<Track | null> {
-    // TODO: Implement API call
-    return null;
+    if (!this.accessToken) {
+      throw new Error('Not authenticated');
+    }
+    try {
+      const res = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+        },
+      });
+      if (res.status === 204) return null; // No content, nothing is playing
+      if (res.status === 401) {
+        // Token expired, try to refresh
+        await this.refreshAccessToken();
+        return this.getCurrentlyPlaying(); // Retry once
+      }
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error?.message || 'Failed to fetch currently playing track');
+      }
+      const data = await res.json();
+      if (!data.item) return null;
+      const item = data.item;
+      // Map Spotify API track object to our Track interface
+      const track: Track = {
+        id: item.id,
+        name: item.name,
+        artists: (item.artists || []).map((artist: any) => ({
+          id: artist.id,
+          name: artist.name,
+        })),
+        album: {
+          id: item.album.id,
+          name: item.album.name,
+          images: item.album.images,
+          release_date: item.album.release_date,
+        },
+        duration_ms: item.duration_ms,
+        preview_url: item.preview_url,
+      };
+      return track;
+    } catch (error: any) {
+      console.error('[SpotifyAPI] getCurrentlyPlaying failed:', error);
+      throw error;
+    }
   }
 
   /**
