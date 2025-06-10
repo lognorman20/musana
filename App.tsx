@@ -15,6 +15,7 @@ import { SpotifyAPI } from './src/services/SpotifyAPI';
 import { SpotifyUser, Track, Playlist } from './src/types/spotify.types';
 import { PlaylistList } from './src/components/PlaylistList';
 import { SearchSection } from './src/components/Sections/SearchSection';
+import { PlaybackControls } from './src/components/PlaybackControls';
 import { Ionicons } from '@expo/vector-icons';
 
 interface AppState {
@@ -26,6 +27,7 @@ interface AppState {
   playlists: Playlist[];
   playlistsError: string | null;
   loadingPlaylists: boolean;
+  isPlaying: boolean;
 }
 
 const initialState: AppState = {
@@ -37,6 +39,7 @@ const initialState: AppState = {
   playlists: [],
   playlistsError: null,
   loadingPlaylists: false,
+  isPlaying: false,
 };
 
 /**
@@ -123,7 +126,7 @@ export default function App() {
   }, []);
 
   const handleShowCurrentlyPlaying = useCallback(async () => {
-    setState(prev => ({ ...prev, loading: true, error: null, track: null }));
+    setState(prev => ({ ...prev, loading: true, error: null }));
     
     try {
       if (!state.user) {
@@ -136,6 +139,7 @@ export default function App() {
       setState(prev => ({
         ...prev,
         track: currentTrack || null,
+        isPlaying: !!currentTrack,
         error: !currentTrack ? 'Nothing is currently playing.' : null,
       }));
     } catch (error) {
@@ -145,6 +149,14 @@ export default function App() {
       setState(prev => ({ ...prev, loading: false }));
     }
   }, [state.user]);
+
+  const handleTrackSelect = useCallback((track: Track) => {
+    setState(prev => ({ ...prev, track, isPlaying: true }));
+  }, []);
+
+  const handlePlaybackStateChange = useCallback(async () => {
+    await handleShowCurrentlyPlaying();
+  }, [handleShowCurrentlyPlaying]);
 
   const handleLoadPlaylists = useCallback(async () => {
     setState(prev => ({ ...prev, loadingPlaylists: true, playlistsError: null }));
@@ -226,11 +238,20 @@ export default function App() {
               <Text style={styles.artistName}>
                 {state.track.artists.map(a => a.name).join(', ')}
               </Text>
+              <PlaybackControls
+                spotifyApi={spotifyApiRef.current!}
+                currentTrack={state.track}
+                isPlaying={state.isPlaying}
+                onPlaybackStateChange={handlePlaybackStateChange}
+              />
             </View>
           )}
 
           <View style={styles.searchContainer}>
-            <SearchSection spotifyApi={spotifyApiRef.current!} />
+            <SearchSection 
+              spotifyApi={spotifyApiRef.current!}
+              onTrackSelect={handleTrackSelect}
+            />
           </View>
 
           <PlaylistList

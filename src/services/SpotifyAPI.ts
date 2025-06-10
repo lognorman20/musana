@@ -40,6 +40,19 @@ interface SpotifyAlbumObject {
   release_date: string;
 }
 
+interface SpotifyDevice {
+  id: string;
+  is_active: boolean;
+  name: string;
+  type: string;
+}
+
+interface SpotifyPlaybackState {
+  is_playing: boolean;
+  device: SpotifyDevice;
+  item: SpotifyTrackObject;
+}
+
 /**
  * SpotifyAPI service for handling authentication and Spotify Web API requests.
  * All methods return Promises and use strict typing.
@@ -317,7 +330,19 @@ export class SpotifyAPI {
         throw new Error(errorData.error?.message || `API request failed: ${response.status}`);
       }
 
-      return response.json();
+      // Handle empty responses (204 No Content)
+      if (response.status === 204) {
+        return {} as T;
+      }
+
+      // Check if response has content before trying to parse JSON
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        return response.json();
+      }
+      
+      // For non-JSON responses, return empty object
+      return {} as T;
     } catch (error) {
       console.error(`[SpotifyAPI] Request failed - ${endpoint}:`, error);
       throw error;
@@ -392,6 +417,44 @@ export class SpotifyAPI {
   }
 
   /**
+   * Get available devices and their states
+   */
+  async getDevices(): Promise<SpotifyDevice[]> {
+    try {
+      const response = await this.makeRequest<{ devices: SpotifyDevice[] }>('/me/player/devices');
+      return response.devices;
+    } catch (error) {
+      console.error('[SpotifyAPI] getDevices failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get the current playback state
+   */
+  async getPlaybackState(): Promise<SpotifyPlaybackState | null> {
+    try {
+      const response = await fetch('https://api.spotify.com/v1/me/player', {
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+        },
+      });
+
+      if (response.status === 204) return null;
+      if (response.status === 401) {
+        await this.refreshAccessToken();
+        return this.getPlaybackState();
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('[SpotifyAPI] getPlaybackState failed:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Start playback of a track
    * @param trackId The Spotify track ID to play
    */
@@ -400,21 +463,44 @@ export class SpotifyAPI {
       throw new Error('Track ID is required');
     }
 
-    await this.makeRequest('/me/player/play', {
-      method: 'PUT',
-      body: JSON.stringify({
-        uris: [`spotify:track:${trackId}`],
-      }),
-    });
+    try {
+      // First check if we have an active device
+      const devices = await this.getDevices();
+      const activeDevice = devices.find(d => d.is_active);
+      
+      if (!activeDevice) {
+        throw new Error('No active Spotify device found. Please open Spotify on your device first.');
+      }
+
+      await this.makeRequest('/me/player/play', {
+        method: 'PUT',
+        body: JSON.stringify({
+          uris: [`spotify:track:${trackId}`],
+        }),
+      });
+    } catch (error) {
+      console.error('[SpotifyAPI] playTrack failed:', error);
+      throw error;
+    }
   }
 
   /**
    * Pause playback
    */
   async pauseTrack(): Promise<void> {
-    await this.makeRequest('/me/player/pause', {
-      method: 'PUT',
-    });
+    try {
+      const state = await this.getPlaybackState();
+      if (!state || !state.is_playing) {
+        return; // Already paused or no active playback
+      }
+
+      await this.makeRequest('/me/player/pause', {
+        method: 'PUT',
+      });
+    } catch (error) {
+      console.error('[SpotifyAPI] pauseTrack failed:', error);
+      throw error;
+    }
   }
 
   /**

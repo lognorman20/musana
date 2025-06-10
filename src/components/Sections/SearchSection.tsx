@@ -4,6 +4,11 @@ import { SpotifyAPI } from '../../services/SpotifyAPI';
 import { Track } from '../../types/spotify.types';
 import { Ionicons } from '@expo/vector-icons';
 
+interface SearchSectionProps {
+  spotifyApi: SpotifyAPI;
+  onTrackSelect?: (track: Track) => void;
+}
+
 interface TrackItemProps {
   track: Track;
   onPress: (track: Track) => void;
@@ -33,11 +38,7 @@ const TrackItem: React.FC<TrackItemProps> = ({ track, onPress }) => (
   </TouchableOpacity>
 );
 
-interface SearchSectionProps {
-  spotifyApi: SpotifyAPI;
-}
-
-export const SearchSection: React.FC<SearchSectionProps> = ({ spotifyApi }) => {
+export const SearchSection: React.FC<SearchSectionProps> = ({ spotifyApi, onTrackSelect }) => {
   const [query, setQuery] = useState('');
   const [tracks, setTracks] = useState<Track[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -60,9 +61,14 @@ export const SearchSection: React.FC<SearchSectionProps> = ({ spotifyApi }) => {
     }
   };
 
-  const handleTrackPress = (track: Track) => {
-    // TODO: Implement track selection/playback
-    console.log('Selected track:', track.name);
+  const handleTrackPress = async (track: Track) => {
+    try {
+      await spotifyApi.playTrack(track.id);
+      onTrackSelect?.(track);
+    } catch (error) {
+      console.error('Failed to play track:', error);
+      setError('Failed to play track. Please try again.');
+    }
   };
 
   return (
@@ -110,7 +116,7 @@ export const SearchSection: React.FC<SearchSectionProps> = ({ spotifyApi }) => {
 
 const styles = StyleSheet.create({
   container: {
-    height: 400, // Fixed height for the search section
+    height: 400,
     backgroundColor: '#000',
     padding: 16,
   },
@@ -131,7 +137,7 @@ const styles = StyleSheet.create({
   searchButton: {
     width: 48,
     height: 48,
-    backgroundColor: '#1DB954', // Spotify green
+    backgroundColor: '#1DB954',
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
