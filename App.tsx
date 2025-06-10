@@ -17,6 +17,7 @@ import { PlaylistList } from './src/components/PlaylistList';
 import { SearchSection } from './src/components/Sections/SearchSection';
 import { PlaybackControls } from './src/components/PlaybackControls';
 import { Ionicons } from '@expo/vector-icons';
+import { ColorExtractor, ColorPalette, defaultColors } from './src/services/ColorExtractor';
 
 interface AppState {
   loading: boolean;
@@ -28,6 +29,7 @@ interface AppState {
   playlistsError: string | null;
   loadingPlaylists: boolean;
   isPlaying: boolean;
+  colorPalette: ColorPalette;
 }
 
 const initialState: AppState = {
@@ -40,6 +42,7 @@ const initialState: AppState = {
   playlistsError: null,
   loadingPlaylists: false,
   isPlaying: false,
+  colorPalette: defaultColors,
 };
 
 /**
@@ -101,6 +104,15 @@ export default function App() {
     return () => sub.remove();
   }, [state.tokensLoaded]);
 
+  const updateColors = useCallback(async (track: Track | null) => {
+    if (!track?.album.images[0]?.url) {
+      setState(prev => ({ ...prev, colorPalette: defaultColors }));
+      return;
+    }
+    const colors = await ColorExtractor.extractColors(track.album.images[0].url);
+    setState(prev => ({ ...prev, colorPalette: colors }));
+  }, []);
+
   const handleSpotifyAuth = useCallback(async () => {
     setState(prev => ({ ...prev, loading: true }));
     try {
@@ -122,6 +134,7 @@ export default function App() {
       track: null,
       error: null,
       playlists: [],
+      colorPalette: defaultColors,
     }));
   }, []);
 
@@ -147,17 +160,24 @@ export default function App() {
         isPlaying: playbackState?.is_playing || false,
         error: !currentTrack ? 'Nothing is currently playing.' : null,
       }));
+
+      if (currentTrack) {
+        await updateColors(currentTrack);
+      } else {
+        setState(prev => ({...prev, colorPalette: defaultColors}));
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch currently playing track';
       setState(prev => ({ ...prev, error: message }));
     } finally {
       setState(prev => ({ ...prev, loading: false }));
     }
-  }, [state.user]);
+  }, [state.user, updateColors]);
 
-  const handleTrackSelect = useCallback((track: Track) => {
+  const handleTrackSelect = useCallback(async (track: Track) => {
     setState(prev => ({ ...prev, track, isPlaying: true }));
-  }, []);
+    await updateColors(track);
+  }, [updateColors]);
 
   const handlePlaybackStateChange = useCallback(async () => {
     await handleShowCurrentlyPlaying();
@@ -195,8 +215,8 @@ export default function App() {
   }
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#000" />
+    <View style={[styles.container, { backgroundColor: state.colorPalette.darkMuted }]}>
+      <StatusBar barStyle="light-content" backgroundColor={state.colorPalette.darkMuted} />
       {!state.user ? (
         <View style={styles.authContainer}>
           <Ionicons name="musical-notes" size={64} color="#1DB954" />
@@ -234,13 +254,13 @@ export default function App() {
           )}
 
           {state.track && (
-            <View style={styles.trackContainer}>
+            <View style={[styles.trackContainer, { backgroundColor: state.colorPalette.dominant }]}>
               <Image
                 source={{ uri: state.track.album.images[0]?.url }}
                 style={styles.albumArt}
               />
-              <Text style={styles.trackName}>{state.track.name}</Text>
-              <Text style={styles.artistName}>
+              <Text style={[styles.trackName, { color: state.colorPalette.textPrimary }]}>{state.track.name}</Text>
+              <Text style={[styles.artistName, { color: state.colorPalette.textSecondary }]}>
                 {state.track.artists.map(a => a.name).join(', ')}
               </Text>
               <PlaybackControls
@@ -249,6 +269,7 @@ export default function App() {
                 isPlaying={state.isPlaying}
                 onPlaybackStateChange={handlePlaybackStateChange}
               />
+              <ColorPaletteDisplay palette={state.colorPalette} />
             </View>
           )}
 
@@ -270,6 +291,20 @@ export default function App() {
     </View>
   );
 }
+
+const ColorPaletteDisplay = ({ palette }: { palette: ColorPalette }) => {
+  const colors = Object.entries(palette);
+  return (
+    <View style={styles.paletteContainer}>
+      {colors.map(([name, color]) => (
+        <View key={name} style={styles.paletteItem}>
+          <View style={[styles.colorSwatch, { backgroundColor: color }]} />
+          <Text style={styles.colorName}>{name}</Text>
+        </View>
+      ))}
+    </View>
+  );
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -372,4 +407,26 @@ const styles = StyleSheet.create({
     height: 400,
     marginVertical: 20,
   },
+  paletteContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    marginTop: 20,
+  },
+  paletteItem: {
+    alignItems: 'center',
+    margin: 5,
+  },
+  colorSwatch: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#555',
+  },
+  colorName: {
+    color: '#AAA',
+    fontSize: 12,
+    marginTop: 4,
+  }
 });
