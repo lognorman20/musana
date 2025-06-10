@@ -27,11 +27,7 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
       setIsLoading(true);
       setError(null);
 
-      if (isPlaying) {
-        await spotifyApi.pauseTrack();
-      } else if (currentTrack) {
-        await spotifyApi.playTrack(currentTrack.id);
-      }
+      await spotifyApi.togglePlayback();
       onPlaybackStateChange?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Playback control failed';

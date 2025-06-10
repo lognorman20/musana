@@ -135,11 +135,16 @@ export default function App() {
         return;
       }
 
-      const currentTrack = await spotifyApiRef.current?.getCurrentlyPlaying();
+      // Get both current track and playback state
+      const [currentTrack, playbackState] = await Promise.all([
+        spotifyApiRef.current?.getCurrentlyPlaying(),
+        spotifyApiRef.current?.getPlaybackState()
+      ]);
+
       setState(prev => ({
         ...prev,
         track: currentTrack || null,
-        isPlaying: !!currentTrack,
+        isPlaying: playbackState?.is_playing || false,
         error: !currentTrack ? 'Nothing is currently playing.' : null,
       }));
     } catch (error) {

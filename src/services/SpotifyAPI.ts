@@ -504,6 +504,34 @@ export class SpotifyAPI {
   }
 
   /**
+   * Toggle playback - pause if playing, resume if paused
+   */
+  async togglePlayback(): Promise<void> {
+    try {
+      const state = await this.getPlaybackState();
+      
+      if (!state) {
+        throw new Error('No active playback session found');
+      }
+
+      if (state.is_playing) {
+        // Currently playing, so pause
+        await this.makeRequest('/me/player/pause', {
+          method: 'PUT',
+        });
+      } else {
+        // Currently paused, so resume
+        await this.makeRequest('/me/player/play', {
+          method: 'PUT',
+        });
+      }
+    } catch (error) {
+      console.error('[SpotifyAPI] togglePlayback failed:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Skip to the next track
    */
   async skipToNext(): Promise<void> {
