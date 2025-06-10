@@ -1,56 +1,92 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Button, View, ActivityIndicator, StyleSheet, StatusBar, Text, Image, Alert } from 'react-native';
+import { 
+  View, 
+  ActivityIndicator, 
+  StyleSheet, 
+  StatusBar, 
+  Text, 
+  Image, 
+  Alert,
+  ScrollView,
+  TouchableOpacity,
+} from 'react-native';
 import * as Linking from 'expo-linking';
 import { SpotifyAPI } from './src/services/SpotifyAPI';
 import { SpotifyUser, Track, Playlist } from './src/types/spotify.types';
 import { PlaylistList } from './src/components/PlaylistList';
+import { SearchSection } from './src/components/Sections/SearchSection';
+import { Ionicons } from '@expo/vector-icons';
 
-// Main App Entry
+interface AppState {
+  loading: boolean;
+  user: SpotifyUser | null;
+  track: Track | null;
+  error: string | null;
+  tokensLoaded: boolean;
+  playlists: Playlist[];
+  playlistsError: string | null;
+  loadingPlaylists: boolean;
+}
+
+const initialState: AppState = {
+  loading: true,
+  user: null,
+  track: null,
+  error: null,
+  tokensLoaded: false,
+  playlists: [],
+  playlistsError: null,
+  loadingPlaylists: false,
+};
+
+/**
+ * Main App Entry Point
+ * Handles authentication flow and main app layout
+ */
 export default function App() {
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<SpotifyUser | null>(null);
-  const [track, setTrack] = useState<Track | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [tokensLoaded, setTokensLoaded] = useState(false);
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [playlistsError, setPlaylistsError] = useState<string | null>(null);
-  const [loadingPlaylists, setLoadingPlaylists] = useState(false);
+  const [state, setState] = useState<AppState>(initialState);
   const spotifyApiRef = useRef<SpotifyAPI | null>(null);
 
   // Load tokens on mount
   useEffect(() => {
     const load = async () => {
-      const api = new SpotifyAPI();
-      // Wait for tokens to load
-      if (typeof (api as any).loadTokens === 'function') {
-        await (api as any).loadTokens();
+      try {
+        const api = new SpotifyAPI();
+        await api.loadTokens();
+        spotifyApiRef.current = api;
+        setState(prev => ({ ...prev, tokensLoaded: true, loading: false }));
+      } catch (error) {
+        console.error('[App] Failed to load tokens:', error);
+        Alert.alert('Error', 'Failed to initialize app. Please try again.');
       }
-      spotifyApiRef.current = api;
-      setTokensLoaded(true);
-      setLoading(false);
     };
     load();
   }, []);
 
   // Listen for OAuth redirect
   useEffect(() => {
-    if (!tokensLoaded) return;
+    if (!state.tokensLoaded) return;
+
     const handleUrl = async (event: { url: string }) => {
       const url = event.url;
       const code = Linking.parse(url).queryParams?.code as string | undefined;
+      
       if (code && spotifyApiRef.current) {
-        setLoading(true);
+        setState(prev => ({ ...prev, loading: true }));
         try {
           const userData = await spotifyApiRef.current.handleAuthCallback(code);
-          setUser(userData);
-        } catch (e: any) {
-          Alert.alert('Authentication Error', e?.message || 'Failed to authenticate');
+          setState(prev => ({ ...prev, user: userData }));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to authenticate';
+          Alert.alert('Authentication Error', message);
         } finally {
-          setLoading(false);
+          setState(prev => ({ ...prev, loading: false }));
         }
       }
     };
+
     const sub = Linking.addEventListener('url', handleUrl);
+
     // Check if app was opened with a code already
     (async () => {
       const initialUrl = await Linking.getInitialURL();
@@ -58,75 +94,81 @@ export default function App() {
         handleUrl({ url: initialUrl });
       }
     })();
+
     return () => sub.remove();
-  }, [tokensLoaded]);
+  }, [state.tokensLoaded]);
 
   const handleSpotifyAuth = useCallback(async () => {
-    setLoading(true);
+    setState(prev => ({ ...prev, loading: true }));
     try {
       const url = await spotifyApiRef.current?.authenticate();
       if (url) Linking.openURL(url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start authentication';
+      Alert.alert('Error', message);
     } finally {
-      setLoading(false);
+      setState(prev => ({ ...prev, loading: false }));
     }
   }, []);
 
   const handleLogout = useCallback(() => {
     spotifyApiRef.current?.logout();
-    setUser(null);
-    setTrack(null);
-    setError(null);
+    setState(prev => ({
+      ...prev,
+      user: null,
+      track: null,
+      error: null,
+      playlists: [],
+    }));
   }, []);
 
   const handleShowCurrentlyPlaying = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    setTrack(null);
+    setState(prev => ({ ...prev, loading: true, error: null, track: null }));
+    
     try {
-      // Authenticate if not already
-      if (!user) {
+      if (!state.user) {
         const url = await spotifyApiRef.current?.authenticate();
         if (url) Linking.openURL(url);
-        setLoading(false);
         return;
       }
+
       const currentTrack = await spotifyApiRef.current?.getCurrentlyPlaying();
-      if (!currentTrack) {
-        setError('Nothing is currently playing.');
-        setTrack(null);
-      } else {
-        setTrack(currentTrack);
-      }
-    } catch (e: any) {
-      setError(e?.message || 'Failed to fetch currently playing track');
+      setState(prev => ({
+        ...prev,
+        track: currentTrack || null,
+        error: !currentTrack ? 'Nothing is currently playing.' : null,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch currently playing track';
+      setState(prev => ({ ...prev, error: message }));
     } finally {
-      setLoading(false);
+      setState(prev => ({ ...prev, loading: false }));
     }
-  }, [user]);
+  }, [state.user]);
 
   const handleLoadPlaylists = useCallback(async () => {
-    setLoadingPlaylists(true);
-    setPlaylistsError(null);
+    setState(prev => ({ ...prev, loadingPlaylists: true, playlistsError: null }));
+    
     try {
-      // Authenticate if not already
-      if (!user) {
+      if (!state.user) {
         const url = await spotifyApiRef.current?.authenticate();
         if (url) Linking.openURL(url);
-        setLoadingPlaylists(false);
         return;
       }
+
       const userPlaylists = await spotifyApiRef.current?.getUserPlaylists();
       if (userPlaylists) {
-        setPlaylists(userPlaylists);
+        setState(prev => ({ ...prev, playlists: userPlaylists }));
       }
-    } catch (e: any) {
-      setPlaylistsError(e?.message || 'Failed to fetch playlists');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch playlists';
+      setState(prev => ({ ...prev, playlistsError: message }));
     } finally {
-      setLoadingPlaylists(false);
+      setState(prev => ({ ...prev, loadingPlaylists: false }));
     }
-  }, [user]);
+  }, [state.user]);
 
-  if (loading || !tokensLoaded) {
+  if (state.loading || !state.tokensLoaded) {
     return (
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#000" />
@@ -138,35 +180,66 @@ export default function App() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
-      {!user ? (
-        <Button title="Login with Spotify" onPress={handleSpotifyAuth} color="#1DB954" />
+      {!state.user ? (
+        <View style={styles.authContainer}>
+          <Ionicons name="musical-notes" size={64} color="#1DB954" />
+          <Text style={styles.appTitle}>Minimal Spotify</Text>
+          <TouchableOpacity 
+            style={styles.loginButton}
+            onPress={handleSpotifyAuth}
+          >
+            <Ionicons name="musical-notes" size={24} color="#FFF" />
+            <Text style={styles.loginButtonText}>Login with Spotify</Text>
+          </TouchableOpacity>
+        </View>
       ) : (
-        <>
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.header}>
-            <Text style={styles.welcomeText}>Welcome, {user.display_name}</Text>
-            <Button title="Logout" onPress={handleLogout} color="#ff0033" />
+            <Text style={styles.welcomeText}>Welcome, {state.user.display_name}</Text>
+            <TouchableOpacity 
+              style={styles.logoutButton}
+              onPress={handleLogout}
+            >
+              <Ionicons name="log-out" size={24} color="#ff0033" />
+            </TouchableOpacity>
           </View>
-          <Button title="Show Currently Playing" onPress={handleShowCurrentlyPlaying} color="#1DB954" />
-          {error && <Text style={styles.error}>{error}</Text>}
-          {track && (
+
+          <TouchableOpacity 
+            style={styles.nowPlayingButton}
+            onPress={handleShowCurrentlyPlaying}
+          >
+            <Ionicons name="musical-note" size={24} color="#FFF" />
+            <Text style={styles.nowPlayingText}>Show Currently Playing</Text>
+          </TouchableOpacity>
+
+          {state.error && (
+            <Text style={styles.error}>{state.error}</Text>
+          )}
+
+          {state.track && (
             <View style={styles.trackContainer}>
               <Image
-                source={{ uri: track.album.images[0]?.url }}
+                source={{ uri: state.track.album.images[0]?.url }}
                 style={styles.albumArt}
               />
-              <Text style={styles.trackName}>{track.name}</Text>
+              <Text style={styles.trackName}>{state.track.name}</Text>
               <Text style={styles.artistName}>
-                {track.artists.map(a => a.name).join(', ')}
+                {state.track.artists.map(a => a.name).join(', ')}
               </Text>
             </View>
           )}
+
+          <View style={styles.searchContainer}>
+            <SearchSection spotifyApi={spotifyApiRef.current!} />
+          </View>
+
           <PlaylistList
             onLoadPlaylists={handleLoadPlaylists}
-            playlists={playlists}
-            loading={loadingPlaylists}
-            error={playlistsError}
+            playlists={state.playlists}
+            loading={state.loadingPlaylists}
+            error={state.playlistsError}
           />
-        </>
+        </ScrollView>
       )}
     </View>
   );
@@ -176,10 +249,38 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
+  },
+  content: {
+    flex: 1,
     paddingTop: 50,
     paddingHorizontal: 20,
+  },
+  authContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  appTitle: {
+    color: '#FFF',
+    fontSize: 32,
+    fontWeight: '700',
+    marginVertical: 20,
+  },
+  loginButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1DB954',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 24,
+    marginTop: 20,
+  },
+  loginButtonText: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: '600',
+    marginLeft: 8,
   },
   header: {
     flexDirection: 'row',
@@ -193,27 +294,56 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
+  logoutButton: {
+    padding: 8,
+  },
+  nowPlayingButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1A1A1A',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  nowPlayingText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
   error: {
     color: '#ff0033',
     marginVertical: 20,
+    textAlign: 'center',
   },
   trackContainer: {
     alignItems: 'center',
     marginVertical: 20,
+    padding: 16,
+    backgroundColor: '#1A1A1A',
+    borderRadius: 12,
   },
   albumArt: {
     width: 200,
     height: 200,
-    marginBottom: 10,
+    borderRadius: 8,
+    marginBottom: 16,
   },
   trackName: {
     color: 'white',
     fontSize: 18,
     fontWeight: '600',
-    marginBottom: 5,
+    marginBottom: 8,
+    textAlign: 'center',
   },
   artistName: {
     color: '#999',
     fontSize: 16,
+    textAlign: 'center',
+  },
+  searchContainer: {
+    width: '100%',
+    height: 400,
+    marginVertical: 20,
   },
 });
